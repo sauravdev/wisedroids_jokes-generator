@@ -1,97 +1,121 @@
-import streamlit as st
+import random
 import os
+import streamlit as st
+from typing import List
 from crewai import Agent, Task, Crew
 from crewai.tools import tool
-from pydantic import BaseModel, Field
-import requests
 import openai
 
-class JokeRequest(BaseModel):
-    category: str = Field(..., description="The category of joke to generate")
+# Set page configuration
+st.set_page_config(
+    page_title="Joke Generator",
+    page_icon="😂",
+    layout="wide"
+)
 
-@tool
-def generate_joke(joke_request: JokeRequest) -> str:
-    """Generate a random joke based on the given category."""
-    try:
-        url = f"https://api.humorapi.com/jokes/random?api-key={st.session_state.joke_api_key}&category={joke_request.category}"
-        response = requests.get(url)
-        response.raise_for_status()
-        joke_data = response.json()
-        return joke_data['joke']
-    except requests.RequestException as e:
-        return f"Error generating joke: {str(e)}"
-
-def initialize_agent():
-    return Agent(
-        name="jokes",
-        role="Jokes Generator",
-        goal="Generate random jokes based on user input",
-        backstory="I am an AI-powered jokes generator, ready to make you laugh!",
-        tools=[generate_joke],
-        verbose=True
-    )
-
-def create_task(agent):
-    return Task(
-        description="Generate a random joke based on user input",
-        agent=agent,
-        expected_output="A funny joke based on the specified category",
-        tools=[generate_joke]
-    )
-
-def run_crew(task):
-    crew = Crew(
-        agents=[task.agent],
-        tasks=[task],
-        verbose=True
-    )
-    result = crew.kickoff()
-    return result
-
+# Function to set OpenAI API key
 def set_openai_api_key(api_key):
+    """Set the OpenAI API key as an environment variable."""
     os.environ["OPENAI_API_KEY"] = api_key
-
-def check_openai_api_key(api_key):
     openai.api_key = api_key
-    try:
-        openai.Completion.create(engine="davinci", prompt="Hello, World!", max_tokens=5)
-        return True
-    except:
-        return False
+    return api_key
 
-st.title("Joke Generator")
+# Sidebar for API key input
+st.sidebar.title("Authentication")
+api_key = st.sidebar.text_input("Enter your OpenAI API key:", type="password")
 
-if 'openai_api_key' not in st.session_state:
-    st.session_state.openai_api_key = ''
-
-if 'joke_api_key' not in st.session_state:
-    st.session_state.joke_api_key = ''
-
-with st.sidebar:
-    st.header("API Configuration")
-    openai_api_key = st.text_input("Enter your OpenAI API key:", type="password")
-    joke_api_key = st.text_input("Enter your Joke API key:", type="password")
-    if st.button("Submit API Keys"):
-        if check_openai_api_key(openai_api_key):
-            st.session_state.openai_api_key = openai_api_key
-            set_openai_api_key(openai_api_key)
-            st.session_state.joke_api_key = joke_api_key
-            st.success("API keys set successfully!")
-        else:
-            st.error("Invalid OpenAI API key. Please try again.")
-
-if st.session_state.openai_api_key and st.session_state.joke_api_key:
-    st.write("Welcome to the Joke Generator!")
-    category = st.text_input("Enter a joke category:")
-    
-    if st.button("Generate Joke"):
-        try:
-            jokes_agent = initialize_agent()
-            joke_task = create_task(jokes_agent)
-            joke_result = run_crew(joke_task)
-            st.write("Generated Joke:")
-            st.write(joke_result)
-        except Exception as e:
-            st.error(f"An error occurred: {str(e)}")
+if api_key:
+    set_openai_api_key(api_key)
+    st.sidebar.success("API key set successfully!")
 else:
-    st.warning("Please enter your OpenAI API key and Joke API key in the sidebar to use the Joke Generator.")
+    st.sidebar.warning("Please enter your OpenAI API key to continue.")
+    st.stop()
+
+# Define a tool function with the @tool decorator
+@tool
+def generate_joke(category: str) -> str:
+    """Generate a random joke based on the given category.
+    
+    Args:
+        category: The category of jokes to generate (programming, animal, or food)
+        
+    Returns:
+        A random joke from the specified category
+    """
+    # List of joke categories and corresponding jokes
+    jokes = {
+        "programming": [
+            "Why do programmers prefer dark mode? Because light attracts bugs!",
+            "Why did the programmer quit his job? Because he didn't get arrays!",
+            "How many programmers does it take to change a light bulb? None, that's a hardware problem!"
+        ],
+        "animal": [
+            "Why don't oysters donate to charity? Because they're shellfish!",
+            "What do you call a bear with no teeth? A gummy bear!",
+            "Why don't ants get sick? Because they have tiny ant-ibodies!"
+        ],
+        "food": [
+            "Why did the tomato blush? Because it saw the salad dressing!",
+            "What do you call a fake noodle? An impasta!",
+            "Why did the cookie go to the doctor? Because it was feeling crumbly!"
+        ]
+    }
+    
+    # Check if the category exists, if not return a default message
+    if category.lower() not in jokes:
+        return f"Sorry, I don't have any jokes for the category '{category}'. Try 'programming', 'animal', or 'food'."
+    
+    # Return a random joke from the specified category
+    return random.choice(jokes[category.lower()])
+
+# Main application
+st.title("🎭 AI Joke Generator")
+st.write("Get a random joke from your chosen category!")
+
+# Category selection
+category_options = ["programming", "animal", "food"]
+selected_category = st.selectbox("Select a joke category:", category_options)
+
+# Button to generate joke
+if st.button("Generate Joke"):
+    try:
+        with st.spinner("Generating your joke..."):
+            # Initialize the Agent
+            jokes_agent = Agent(
+                name="jokes generator",
+                role="Generate random jokes based on user input category",
+                goal="Provide entertaining jokes from specific categories",
+                backstory="I am an AI-powered joke generator with a vast database of jokes across various categories.",
+                tools=[generate_joke],
+            )
+
+            # Initialize the Task
+            joke_task = Task(
+                description=f"Generate a joke based on the {selected_category} category",
+                agent=jokes_agent,
+                expected_output="A random joke from the specified category",
+            )
+
+            # Initialize the Crew
+            joke_crew = Crew(
+                agents=[jokes_agent],
+                tasks=[joke_task],
+                verbose=True
+            )
+
+            # Execute the crew and get the result
+            result = joke_crew.kickoff(inputs={"category": selected_category})
+            
+            # Display the joke in a nice box
+            st.success(result)
+    except Exception as e:
+        st.error(f"An error occurred: {str(e)}")
+        if "API key" in str(e).lower() or "authentication" in str(e).lower():
+            st.warning("There might be an issue with your OpenAI API key. Please check if it's valid.")
+
+# Additional information
+st.markdown("---")
+st.markdown("### Available Joke Categories")
+st.markdown("- **Programming**: Jokes about coding, developers, and software")
+st.markdown("- **Animal**: Jokes about animals and their funny behaviors")
+st.markdown("- **Food**: Jokes about food, cooking, and eating")
